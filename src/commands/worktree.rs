@@ -55,7 +55,7 @@ pub fn sync_wt(config: &Config, name: Option<&str>, repo_root: &Path) -> Result<
         let p = wt_dir.join(n);
         if !p.exists() {
             return Err(format!(
-                "worktree '{n}' not found — try `flow wt list`"
+                "worktree '{n}' not found — try `gf wt list`"
             ));
         }
         p
@@ -113,7 +113,7 @@ pub fn ship_wt(
     let wt_path = wt_dir.join(name);
 
     if !wt_path.exists() {
-        return Err(format!("worktree '{name}' not found — try `flow wt list`"));
+        return Err(format!("worktree '{name}' not found — try `gf wt list`"));
     }
 
     // Check for uncommitted changes
@@ -318,9 +318,83 @@ pub fn list_wt(config: &Config, repo_root: &Path) -> Result<(), String> {
     }
 
     if !found {
-        println!("no flow worktrees (use `flow wt create <name>`)");
+        println!("no flow worktrees (use `gf wt create <name>`)");
     }
 
+    Ok(())
+}
+
+pub fn checkout_wt(
+    config: &Config,
+    pr_or_branch: &str,
+    repo_root: &Path,
+) -> Result<(), String> {
+    let wt_dir = config.resolve_wt_dir(repo_root);
+
+    // Fetch latest
+    let fetch = git::run_git(&["fetch", "origin"]);
+    if !fetch.success {
+        return Err(format!("fetch failed: {}", fetch.stderr));
+    }
+
+    // Determine branch name — could be a PR number or branch name
+    let branch_name = if pr_or_branch.chars().all(|c| c.is_ascii_digit()) {
+        // It's a PR number — use gh to get the branch
+        if !git::gh_available() {
+            return Err("gh is required to checkout by PR number".to_string());
+        }
+        let pr_info = git::run_gh(&[
+            "pr", "view", pr_or_branch, "--json", "headRefName", "--jq", ".headRefName",
+        ]);
+        if !pr_info.success {
+            return Err(format!("failed to get PR #{pr_or_branch}: {}", pr_info.stderr));
+        }
+        pr_info.stdout
+    } else {
+        pr_or_branch.to_string()
+    };
+
+    // Check if worktree already exists for this branch
+    let wt_path = wt_dir.join(&branch_name);
+    if wt_path.exists() {
+        println!(
+            "{}",
+            format!("worktree already exists for '{branch_name}'").yellow()
+        );
+        println!("  cd {}", wt_path.display());
+        return Ok(());
+    }
+
+    // Create parent directory
+    if let Some(parent) = wt_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create directory: {e}"))?;
+        }
+    }
+
+    // Create worktree tracking the remote branch
+    let wt_path_str = wt_path.to_string_lossy();
+    let remote_ref = format!("origin/{branch_name}");
+
+    // Check if local branch already exists
+    let result = if git::branch_exists(&branch_name) {
+        git::run_git(&["worktree", "add", &wt_path_str, &branch_name])
+    } else {
+        git::run_git(&[
+            "worktree", "add", &wt_path_str, "-b", &branch_name, &remote_ref,
+        ])
+    };
+
+    if !result.success {
+        return Err(format!("worktree creation failed: {}", result.stderr));
+    }
+
+    println!(
+        "{}",
+        format!("checked out '{branch_name}' into worktree").green()
+    );
+    println!("  cd {wt_path_str}");
     Ok(())
 }
 

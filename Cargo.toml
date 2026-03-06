@@ -1,8 +1,8 @@
 [package]
-name = "flow"
+name = "gf"
 version = "0.1.0"
 edition = "2021"
-description = "A minimal, opinionated CLI for trunk-based development with worktree escape hatches"
+description = "Opinionated trunk-based development CLI built for agentic, monorepo workflows"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
