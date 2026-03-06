@@ -154,6 +154,132 @@ pub fn end(config: &Config, repo_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn save() -> Result<(), String> {
+    let root_str = git::repo_root()?;
+    let current_root = Path::new(&root_str);
+
+    let session_file = current_root.join(".gf-session");
+    if !session_file.exists() {
+        return Err("no active session — nothing to save".to_string());
+    }
+
+    if !git::has_uncommitted_changes() {
+        println!("{}", "nothing to save — working tree clean".dimmed());
+        return Ok(());
+    }
+
+    let add = git::run_git(&["add", "-A"]);
+    if !add.success {
+        return Err(format!("git add failed: {}", add.stderr));
+    }
+
+    let commit = git::run_git(&["commit", "-m", "WIP: session checkpoint"]);
+    if !commit.success {
+        return Err(format!("commit failed: {}", commit.stderr));
+    }
+
+    println!("{}", "session checkpoint saved".green());
+    Ok(())
+}
+
+pub fn abort(config: &Config, repo_root: &Path) -> Result<(), String> {
+    let root_str = git::repo_root()?;
+    let current_root = Path::new(&root_str);
+
+    let session_file = current_root.join(".gf-session");
+    if !session_file.exists() {
+        return Err("no active session — nothing to abort".to_string());
+    }
+
+    let session_data = fs::read_to_string(&session_file)
+        .map_err(|e| format!("failed to read session file: {e}"))?;
+
+    let mut branch = String::new();
+    for line in session_data.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            if key.trim() == "branch" {
+                branch = value.trim().trim_matches('"').to_string();
+            }
+        }
+    }
+
+    if branch.is_empty() {
+        return Err("corrupt session file — missing branch name".to_string());
+    }
+
+    // Remove session file
+    let _ = fs::remove_file(&session_file);
+
+    // Force-remove the worktree (discard all changes)
+    worktree::remove_wt(config, &branch, true, false, repo_root)?;
+
+    println!(
+        "{}",
+        "session aborted — worktree removed, changes discarded"
+            .yellow()
+            .bold()
+    );
+    Ok(())
+}
+
+pub fn status() -> Result<(), String> {
+    let root_str = git::repo_root()?;
+    let current_root = Path::new(&root_str);
+
+    let session_file = current_root.join(".gf-session");
+    if !session_file.exists() {
+        println!("no active session");
+        return Ok(());
+    }
+
+    let session_data = fs::read_to_string(&session_file)
+        .map_err(|e| format!("failed to read session file: {e}"))?;
+
+    let mut description = String::new();
+    let mut started = String::new();
+    let mut branch = String::new();
+
+    for line in session_data.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+            match key {
+                "description" => description = value.to_string(),
+                "started" => started = value.to_string(),
+                "branch" => branch = value.to_string(),
+                _ => {}
+            }
+        }
+    }
+
+    println!("{}", "active session:".bold());
+    println!("  task:    {}", description.cyan());
+    println!("  branch:  {}", branch.green());
+    println!("  started: {}", started.dimmed());
+
+    // Show dirty/commit status
+    if git::has_uncommitted_changes() {
+        let status = git::run_git(&["status", "--porcelain"]);
+        let dirty_count = status.stdout.lines().count();
+        println!("  status:  {}", format!("{dirty_count} uncommitted files").yellow());
+    } else {
+        println!("  status:  {}", "clean".green());
+    }
+
+    // Show commits in session
+    let trunk = git::run_git(&["config", "--get", "gf.trunk"]);
+    let trunk_name = if trunk.success && !trunk.stdout.is_empty() {
+        trunk.stdout
+    } else {
+        "main".to_string()
+    };
+    let remote_trunk = format!("origin/{trunk_name}");
+    let (ahead, _) = git::commits_ahead_behind("HEAD", &remote_trunk);
+    println!("  commits: {ahead} ahead of {trunk_name}");
+
+    Ok(())
+}
+
 fn chrono_now() -> String {
     // Simple timestamp without adding chrono dependency
     let output = std::process::Command::new("date")

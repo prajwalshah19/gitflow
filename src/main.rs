@@ -67,6 +67,21 @@ enum Commands {
     #[command(subcommand)]
     Wrap(WrapCommands),
 
+    /// Pre-flight state check — verify branch, worktree, cleanliness
+    Guard {
+        /// Expected branch name (block if mismatch)
+        #[arg(long)]
+        expect_branch: Option<String>,
+    },
+
+    /// Review a PR — checkout, fetch comments, run checks
+    #[command(subcommand)]
+    Review(ReviewCommands),
+
+    /// Generate or update codebase context map
+    #[command(subcommand)]
+    Context(ContextCommands),
+
     /// Single-screen overview of everything in flight
     Status,
 
@@ -184,8 +199,47 @@ enum WrapCommands {
         description: String,
     },
 
+    /// Checkpoint current work without shipping
+    Save,
+
+    /// Show current session status
+    Status,
+
     /// End session — commit, ship PR, clean up worktree
     End,
+
+    /// Abort session — discard changes, remove worktree
+    Abort,
+}
+
+#[derive(Subcommand)]
+enum ReviewCommands {
+    /// Start reviewing a PR (checkout + fetch comments + run checks)
+    Start {
+        /// PR number or branch name
+        pr: String,
+    },
+
+    /// Push review updates and post comment
+    Ship {
+        /// PR number or branch name
+        pr: String,
+    },
+
+    /// Clean up review worktree
+    Done {
+        /// PR number or branch name
+        pr: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContextCommands {
+    /// Scan repo and generate .gf-context.md
+    Generate,
+
+    /// Refresh the context map
+    Update,
 }
 
 fn main() {
@@ -284,7 +338,28 @@ fn main() {
                     WrapCommands::Begin { description } => {
                         commands::wrap::begin(&config, &description, &root)
                     }
+                    WrapCommands::Save => commands::wrap::save(),
+                    WrapCommands::Status => commands::wrap::status(),
                     WrapCommands::End => commands::wrap::end(&config, &root),
+                    WrapCommands::Abort => commands::wrap::abort(&config, &root),
+                },
+                Commands::Guard { expect_branch } => {
+                    commands::guard::run(&config, expect_branch.as_deref())
+                }
+                Commands::Review(review_cmd) => match review_cmd {
+                    ReviewCommands::Start { pr } => {
+                        commands::review::start(&config, &pr, &root)
+                    }
+                    ReviewCommands::Ship { pr } => {
+                        commands::review::ship_review(&config, &pr, &root)
+                    }
+                    ReviewCommands::Done { pr } => {
+                        commands::review::done(&config, &pr, &root)
+                    }
+                },
+                Commands::Context(ctx_cmd) => match ctx_cmd {
+                    ContextCommands::Generate => commands::context::generate(&root),
+                    ContextCommands::Update => commands::context::update(&root),
                 },
                 Commands::Status => commands::status::run(&config, &root),
                 Commands::Doctor { quiet } => commands::doctor::run(&config, &root, quiet),

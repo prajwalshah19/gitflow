@@ -36,6 +36,7 @@ pub struct Config {
     pub wt_dir: String,
     pub guardrails: Guardrails,
     pub wrap: WrapConfig,
+    pub review_checks: Vec<String>,
 }
 
 impl Default for Config {
@@ -45,6 +46,7 @@ impl Default for Config {
             wt_dir: "../{repo}-wt".to_string(),
             guardrails: Guardrails::default(),
             wrap: WrapConfig::default(),
+            review_checks: Vec::new(),
         }
     }
 }
@@ -71,6 +73,7 @@ impl Config {
                 section = match &line[1..line.len() - 1] {
                     "guardrails" => "guardrails",
                     "wrap" => "wrap",
+                    "review" => "review",
                     _ => "",
                 };
                 continue;
@@ -105,6 +108,17 @@ impl Config {
                     "wrap" => match key {
                         "pre_end" => {
                             config.wrap.pre_end = Some(value.to_string());
+                        }
+                        _ => {}
+                    },
+                    "review" => match key {
+                        "checks" => {
+                            // Parse comma-separated or single check
+                            config.review_checks = value
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
                         }
                         _ => {}
                     },

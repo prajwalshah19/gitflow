@@ -1,5 +1,8 @@
+pub mod context;
 pub mod doctor;
+pub mod guard;
 pub mod init;
+pub mod review;
 pub mod ship;
 pub mod stack;
 pub mod status;
